@@ -1,0 +1,9 @@
+name,age,salary,department,is_active
+张三,25,5000,技术部,True
+李四,,6000,销售部,False
+王五,30,,技术部,True
+赵六,28,5500,,True
+钱七,,,人事部,False
+孙八,35,7000,技术部,
+周九,27,4800,销售部,True
+吴十,32,6500,技术部,True 
