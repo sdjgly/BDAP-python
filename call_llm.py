@@ -127,7 +127,7 @@ def perform_web_search(query: str) -> str:
         print(f"未知错误: {e}")
         return f"【联网搜索失败】：{e}\n"
 
-async def call_dify(model: str, prompt: str, user_id: str, conversation_id: Optional[str] = None) -> str:
+async def call_dify(model: str, prompt: str, user_id: str, conversation_id: Optional[str] = None, isWorkFlow: bool = False) -> str:
     api_key = MODEL_TO_APIKEY.get(model)
 
     if not api_key:
@@ -139,7 +139,7 @@ async def call_dify(model: str, prompt: str, user_id: str, conversation_id: Opti
     }
 
     data = {
-        "inputs": {},
+        "inputs": {"isWorkFlow": isWorkFlow} if isWorkFlow else {},
         "query": prompt,
         "response_mode": "blocking",
         "user": user_id,
