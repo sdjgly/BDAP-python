@@ -318,6 +318,24 @@ def parse_llm_response(llm_response: Any, workflow_name: str, workflow_descripti
                 for output_anchor in node["outputAnchors"]:
                     if isinstance(output_anchor, dict):
                         output_anchor.setdefault("targetAnchors", [])
+                
+                # 确保属性字段是列表类型
+                if not isinstance(node["simpleAttributes"], list):
+                    node["simpleAttributes"] = []
+                if not isinstance(node["complicatedAttributes"], list):
+                    node["complicatedAttributes"] = []
+                
+                # 验证并修复属性结构
+                for attr in node["simpleAttributes"]:
+                    if isinstance(attr, dict):
+                        attr.setdefault("name", "")
+                        attr.setdefault("value", "")
+                        attr.setdefault("valueType", "String")
+                
+                for attr in node["complicatedAttributes"]:
+                    if isinstance(attr, dict):
+                        attr.setdefault("name", "")
+                        attr.setdefault("value", {})
             
             return workflow_data
         else:
