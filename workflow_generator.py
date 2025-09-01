@@ -93,10 +93,10 @@ async def generate_workflow(request: WorkflowGenerationRequest):
         # 1. 直接调用大模型（dify上已经配置好了模板）
         llm_response, new_conversation_id = await call_dify(
             model=request.model,
-            prompt=request.user_prompt,  # 直接使用用户输入
+            prompt=request.user_prompt,
             user_id=request.user_id or "anonymous",
             conversation_id=request.conversation_id,
-            isWorkFlow=request.isWorkFlow  # 传递 isWorkFlow 参数
+            isWorkFlow=request.isWorkFlow
         )
         
         # 2. 解析LLM响应
