@@ -198,7 +198,21 @@ class SimplifiedWorkflowValidator:
         """
         # 获取组件名和属性
         component_name = node.get("id")
-        provided_attrs = {**node.get("simpleAttributes", {}), **node.get("complicatedAttributes", {})}
+        # 修复：simpleAttributes和complicatedAttributes是列表，需要转换为字典
+        simple_attrs = {}
+        complicated_attrs = {}
+        
+        # 处理simpleAttributes列表
+        for attr in node.get("simpleAttributes", []):
+            if isinstance(attr, dict) and "name" in attr:
+                simple_attrs[attr["name"]] = attr.get("value", "")
+        
+        # 处理complicatedAttributes列表
+        for attr in node.get("complicatedAttributes", []):
+            if isinstance(attr, dict) and "name" in attr:
+                complicated_attrs[attr["name"]] = attr.get("value", "")
+        
+        provided_attrs = {**simple_attrs, **complicated_attrs}
 
         # 查找组件配置
         component_config = self.components_config.get(component_name)
