@@ -90,13 +90,14 @@ async def shutdown_event():
 async def generate_workflow(request: WorkflowGenerationRequest):
     """生成工作流的主要接口"""
     try:
-        # 1. 直接调用大模型
-        llm_response, new_conversation_id = await call_dify(
+        # 1. 调用大模型，传递requestId参数
+        llm_response, new_conversation_id = await call_dify_with_workflow(
             model=request.model,
             prompt=request.user_prompt,
             user_id=request.user_id or "anonymous",
-            conversation_id=request.conversation_id,
-            isWorkFlow=str(request.isWorkFlow).lower()  # 转换为字符串类型
+            conversation_id=request.conversation_id or "",
+            request_id=request.requestId,
+            isWorkFlow=str(request.isWorkFlow).lower()  # 将布尔值转换为字符串
         )
         
         # 2. 解析LLM响应
@@ -106,7 +107,8 @@ async def generate_workflow(request: WorkflowGenerationRequest):
             workflow_description=request.workflow_description,
             user_id=request.user_id,
             service_type=request.service_type,
-            request_id=request.requestId
+            request_id=request.requestId,
+            conversation_id=new_conversation_id
         )
         
         # 3. 使用简化的工作流校验器
@@ -135,20 +137,114 @@ async def generate_workflow(request: WorkflowGenerationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"工作流生成失败: {str(e)}")
 
-def parse_llm_response(llm_response: str, workflow_name: str, workflow_description: str, 
-                      user_id: str, service_type: str, request_id: str) -> Dict[str, Any]:
+async def call_dify_with_workflow(model: str, prompt: str, user_id: str, request_id: str, 
+                                 conversation_id: Optional[str] = None, isWorkFlow: str = "false") -> tuple:
+    """
+    专门用于工作流生成的dify调用函数
+    """
+    try:
+        # 动态导入以避免循环依赖
+        from call_llm import MODEL_TO_APIKEY, dify_url
+        import httpx
+        
+        api_key = MODEL_TO_APIKEY.get(model)
+        if not api_key:
+            raise ValueError(f"模型{model}未配置API KEY")
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "inputs": {
+                "requestId": request_id,
+                "isWorkFlow": isWorkFlow
+            },
+            "query": prompt,
+            "response_mode": "blocking",
+            "user": user_id,
+            "conversation_id": conversation_id or ""
+        }
+
+        timeout = httpx.Timeout(120.0, read=120.0, connect=10.0)
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(dify_url, headers=headers, json=data)
+
+            print("状态码:", resp.status_code)
+            print("原始内容:", resp.text)
+
+            if resp.status_code == 504:
+                raise HTTPException(status_code=504, detail="[Dify错误]模型响应超时，稍后再试")
+
+            try:
+                result = resp.json()
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"[响应格式错误]无法解析JSON:{e}\n原始响应:{resp.text}")
+
+            if "answer" in result:
+                return result["answer"], result.get("conversation_id")
+            elif "message" in result:
+                raise HTTPException(status_code=502, detail=f"[Dify错误] {result['message']}")
+            else:
+                raise HTTPException(status_code=502, detail="[Dify响应格式异常]")
+
+    except httpx.ReadTimeout:
+        raise HTTPException(status_code=504, detail="[超时] Dify 响应超时")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"[请求失败] {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"[未知错误] {e}")
+
+def parse_dify_response(dify_response: Dict[str, Any]) -> str:
+    """
+    解析dify返回的响应格式，提取answer字段中的JSON内容
+    Args:
+        dify_response: dify返回的字典格式响应
+    Returns:
+        提取的JSON字符串
+    """
+    try:
+        # 如果直接是字符串，直接返回
+        if isinstance(dify_response, str):
+            return dify_response
+        
+        # 如果是字典，提取answer字段
+        if isinstance(dify_response, dict):
+            answer = dify_response.get("answer", "")
+            if answer:
+                return answer
+            
+            # 如果没有answer字段，尝试直接使用整个响应
+            return json.dumps(dify_response)
+        
+        # 如果是其他类型，转换为字符串
+        return str(dify_response)
+        
+    except Exception as e:
+        raise ValueError(f"解析dify响应失败: {e}")
+
+def parse_llm_response(llm_response: Any, workflow_name: str, workflow_description: str, 
+                      user_id: str, service_type: str, request_id: str, conversation_id: str = None) -> Dict[str, Any]:
     """解析LLM返回的文本，提取JSON结构"""
     try:
-        # 处理元组格式的响应
-        if isinstance(llm_response, tuple):
-            llm_response = llm_response[0]
+        # 首先解析dify响应格式
+        if isinstance(llm_response, tuple) and len(llm_response) >= 1:
+            # 如果是元组，取第一个元素
+            response_data = llm_response[0]
+        else:
+            response_data = llm_response
+        
+        # 解析dify响应
+        json_content = parse_dify_response(response_data)
         
         # 查找JSON内容
-        start_idx = llm_response.find('{')
-        end_idx = llm_response.rfind('}') + 1
+        start_idx = json_content.find('{')
+        end_idx = json_content.rfind('}') + 1
         
         if start_idx != -1 and end_idx != -1:
-            json_str = llm_response[start_idx:end_idx]
+            json_str = json_content[start_idx:end_idx]
             workflow_data = json.loads(json_str)
             
             # 确保包含必需字段
@@ -160,7 +256,7 @@ def parse_llm_response(llm_response: str, workflow_name: str, workflow_descripti
             
             # 设置基本信息
             workflow_data["requestId"] = request_id
-            workflow_data["conversation_id"] = None  # 将在调用处设置
+            workflow_data["conversation_id"] = conversation_id
             
             # 设置工作流信息
             workflow_data["workflow_info"]["userId"] = user_id or "anonymous"
@@ -178,6 +274,10 @@ def parse_llm_response(llm_response: str, workflow_name: str, workflow_descripti
                 if isinstance(node["position"], dict):
                     if "x" in node["position"] and "y" in node["position"]:
                         node["position"] = [node["position"]["x"], node["position"]["y"]]
+                
+                # 确保name字段存在
+                if "name" not in node:
+                    node["name"] = node.get("id", f"node_{i}")
                 
                 # 初始化属性列表
                 node.setdefault("simpleAttributes", [])
