@@ -11,13 +11,26 @@ subprocess.Popen(["uvicorn", "queue_service:app", "--host", "0.0.0.0", "--port",
 # 启动 tool_functions（绑定8002端口）
 subprocess.Popen(["uvicorn", "tool_functions:app", "--host", "0.0.0.0", "--port", "8002"])
 
-print("三个服务已启动:")
+# 启动 file_server（绑定8003端口）
+subprocess.Popen(["uvicorn", "file_server:app", "--host", "0.0.0.0", "--port", "8003"])
+
+# 启动 workflow_generator（绑定8004端口）
+subprocess.Popen(["uvicorn", "workflow_generator:app", "--host", "0.0.0.0", "--port", "8004"])
+
+
+
+
+print("五个服务已启动:")
 
 print("- call_llm服务: http://0.0.0.0:8000")
 
 print("- queue_service服务: http://0.0.0.0:8001")
 
 print("- tool_functions服务: http://0.0.0.0:8002")
+
+print("- file_server服务: http://0.0.0.0:8003")
+
+print("- workflow_generator服务: http://0.0.0.0:8004")
 
 print("服务将自动注册到Consul")
 
