@@ -236,16 +236,25 @@ def parse_llm_response(llm_response: Any, workflow_name: str, workflow_descripti
         else:
             response_data = llm_response
         
-        # 解析dify响应
-        json_content = parse_dify_response(response_data)
+        # 确保response_data是字符串
+        if not isinstance(response_data, str):
+            response_data = str(response_data)
+        
+        print(f"解析的响应数据: {response_data[:500]}...")  # 调试输出
         
         # 查找JSON内容
-        start_idx = json_content.find('{')
-        end_idx = json_content.rfind('}') + 1
+        start_idx = response_data.find('{')
+        end_idx = response_data.rfind('}') + 1
         
         if start_idx != -1 and end_idx != -1:
-            json_str = json_content[start_idx:end_idx]
+            json_str = response_data[start_idx:end_idx]
+            print(f"提取的JSON字符串: {json_str[:200]}...")  # 调试输出
+            
             workflow_data = json.loads(json_str)
+            
+            # 验证workflow_data是字典类型
+            if not isinstance(workflow_data, dict):
+                raise ValueError(f"解析的工作流数据不是字典类型，而是: {type(workflow_data)}")
             
             # 确保包含必需字段
             if "workflow_info" not in workflow_data:
@@ -254,54 +263,61 @@ def parse_llm_response(llm_response: Any, workflow_name: str, workflow_descripti
             if "nodes" not in workflow_data:
                 workflow_data["nodes"] = []
             
+            # 验证nodes是列表类型
+            if not isinstance(workflow_data["nodes"], list):
+                raise ValueError(f"nodes字段不是列表类型，而是: {type(workflow_data['nodes'])}")
+            
             # 设置基本信息
             workflow_data["requestId"] = request_id
             workflow_data["conversation_id"] = conversation_id
             
             # 设置工作流信息
+            if not isinstance(workflow_data["workflow_info"], dict):
+                workflow_data["workflow_info"] = {}
             workflow_data["workflow_info"]["userId"] = user_id or "anonymous"
             
             # 处理节点数据，确保符合新的结构格式
-            if isinstance(workflow_data["nodes"], list):
-                for i, node in enumerate(workflow_data["nodes"]):
-                    # 确保节点是字典类型
-                    if not isinstance(node, dict):
-                        print(f"警告: 节点 {i} 不是字典类型，跳过处理")
-                        continue
-                    
-                    # 确保必需字段存在
-                    if "seqId" not in node:
-                        node["seqId"] = node.get("id", f"node_{i}")
-                    
-                    if "position" not in node:
-                        node["position"] = [100 + i * 200, 100]
-                    
-                    # 确保位置格式正确
-                    if isinstance(node["position"], dict):
-                        if "x" in node["position"] and "y" in node["position"]:
-                            node["position"] = [node["position"]["x"], node["position"]["y"]]
-                    
-                    # 确保name字段存在
-                    if "name" not in node:
-                        node["name"] = node.get("id", f"node_{i}")
-                    
-                    # 初始化属性列表
-                    node.setdefault("simpleAttributes", [])
-                    node.setdefault("complicatedAttributes", [])
-                    node.setdefault("inputAnchors", [])
-                    node.setdefault("outputAnchors", [])
-                    
-                    # 处理锚点结构，确保符合新格式
-                    for input_anchor in node["inputAnchors"]:
-                        if isinstance(input_anchor, dict):
-                            input_anchor.setdefault("sourceAnchors", [])
-                    
-                    for output_anchor in node["outputAnchors"]:
-                        if isinstance(output_anchor, dict):
-                            output_anchor.setdefault("targetAnchors", [])
-            else:
-                print(f"警告: nodes字段不是列表类型，实际类型: {type(workflow_data['nodes'])}")
-                workflow_data["nodes"] = []
+            for i, node in enumerate(workflow_data["nodes"]):
+                # 验证节点是字典类型
+                if not isinstance(node, dict):
+                    raise ValueError(f"节点{i}不是字典类型，而是: {type(node)}")
+                
+                # 确保必需字段存在
+                if "seqId" not in node:
+                    node["seqId"] = node.get("id", f"node_{i}")
+                
+                if "position" not in node:
+                    node["position"] = [100 + i * 200, 100]
+                
+                # 确保位置格式正确
+                if isinstance(node["position"], dict):
+                    if "x" in node["position"] and "y" in node["position"]:
+                        node["position"] = [node["position"]["x"], node["position"]["y"]]
+                
+                # 确保name字段存在
+                if "name" not in node:
+                    node["name"] = node.get("id", f"node_{i}")
+                
+                # 初始化属性列表
+                node.setdefault("simpleAttributes", [])
+                node.setdefault("complicatedAttributes", [])
+                node.setdefault("inputAnchors", [])
+                node.setdefault("outputAnchors", [])
+                
+                # 确保锚点是列表类型
+                if not isinstance(node["inputAnchors"], list):
+                    node["inputAnchors"] = []
+                if not isinstance(node["outputAnchors"], list):
+                    node["outputAnchors"] = []
+                
+                # 处理锚点结构，确保符合新格式
+                for input_anchor in node["inputAnchors"]:
+                    if isinstance(input_anchor, dict):
+                        input_anchor.setdefault("sourceAnchors", [])
+                
+                for output_anchor in node["outputAnchors"]:
+                    if isinstance(output_anchor, dict):
+                        output_anchor.setdefault("targetAnchors", [])
             
             return workflow_data
         else:
