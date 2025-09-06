@@ -11,7 +11,7 @@ import re
 
 app = FastAPI()
 
-# 修改后的数据处理请求模型
+# 数据处理请求模型
 class DataProcessRequest(BaseModel):
     model: str                          # 模型名称
     requestId: str                      # 请求ID
@@ -21,7 +21,7 @@ class DataProcessRequest(BaseModel):
     input_path: str                     # 输入文件路径
     output_path: Optional[str] = None   # 输出文件路径
 
-# 数据处理响应模型 - 添加conversation_id参数
+# 数据处理响应模型
 class DataProcessResponse(BaseModel):
     status: str  # success 或 error
     message: str
