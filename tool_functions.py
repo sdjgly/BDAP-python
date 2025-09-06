@@ -11,7 +11,7 @@ import re
 
 app = FastAPI()
 
-# 数据处理请求模型
+# 修改后的数据处理请求模型
 class DataProcessRequest(BaseModel):
     model: str                          # 模型名称
     requestId: str                      # 请求ID
@@ -21,14 +21,14 @@ class DataProcessRequest(BaseModel):
     input_path: str                     # 输入文件路径
     output_path: Optional[str] = None   # 输出文件路径
 
-# 数据处理响应模型
+# 数据处理响应模型 - 添加conversation_id参数
 class DataProcessResponse(BaseModel):
-    requestId: str  # 返回请求ID
-    conversation_id: Optional[str] = None  # 对话ID
     status: str  # success 或 error
     message: str
     output_file: Optional[str] = None
     error_details: Optional[str] = None
+    requestId: str  # 返回请求ID
+    conversation_id: Optional[str] = None  # 对话ID，用于支持上下文连接
 
 # 添加服务启动和关闭事件
 @app.on_event("startup")
@@ -217,13 +217,14 @@ async def execute_data_process(request: DataProcessRequest) -> DataProcessRespon
         
         # 创建一个包含解析参数的请求对象
         class LegacyRequest:
-            def __init__(self, input_path, output_path, operation, parameters):
+            def __init__(self, input_path, output_path, operation, parameters, conversation_id):
                 self.input_path = input_path
                 self.output_path = output_path
                 self.operation = operation
                 self.parameters = parameters
+                self.conversation_id = conversation_id
         
-        legacy_request = LegacyRequest(request.input_path, request.output_path, operation, parameters)
+        legacy_request = LegacyRequest(request.input_path, request.output_path, operation, parameters, request.conversation_id)
         
         # 根据操作类型执行相应的处理
         if operation == "drop_empty_rows":
@@ -281,8 +282,8 @@ def _drop_empty_rows(request) -> DataProcessResponse:
             status="success",
             message="已删除所有空白行",
             output_file=request.output_path,
-            requestId="",
-            conversation_id=None
+            requestId="",  # 稍后会设置
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -290,7 +291,7 @@ def _drop_empty_rows(request) -> DataProcessResponse:
             message="去除空白行处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -306,7 +307,7 @@ def _fill_missing_with_mean(request) -> DataProcessResponse:
             message="已使用平均值填补缺失值",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -314,7 +315,7 @@ def _fill_missing_with_mean(request) -> DataProcessResponse:
             message="使用平均值填补缺失值处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -330,7 +331,7 @@ def _fill_missing_with_median(request) -> DataProcessResponse:
             message="已使用中位数填补缺失值",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -338,7 +339,7 @@ def _fill_missing_with_median(request) -> DataProcessResponse:
             message="使用中位数填补缺失值处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -353,7 +354,7 @@ def _fill_missing_with_constant(request) -> DataProcessResponse:
                 message="需要在描述中指定填充的常数值",
                 error_details="例如：'用0填充缺失值'",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         df = df.fillna(constant_value)
@@ -364,7 +365,7 @@ def _fill_missing_with_constant(request) -> DataProcessResponse:
             message=f"已使用常数{constant_value}填补缺失值",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -372,7 +373,7 @@ def _fill_missing_with_constant(request) -> DataProcessResponse:
             message="使用常数填补缺失值处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -388,7 +389,7 @@ def _fill_missing_with_mode(request) -> DataProcessResponse:
             message="已使用众数填补缺失值",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -396,7 +397,7 @@ def _fill_missing_with_mode(request) -> DataProcessResponse:
             message="使用众数填补缺失值处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -414,7 +415,7 @@ def _filter_by_column(request) -> DataProcessResponse:
                 message="需要在描述中指定列名、条件和值",
                 error_details="例如：'筛选年龄大于30的数据'",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         if condition == '==':
@@ -435,7 +436,7 @@ def _filter_by_column(request) -> DataProcessResponse:
                 message="不支持的条件",
                 error_details=f"条件: {condition}",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         df.to_csv(request.output_path, index=False)
@@ -445,7 +446,7 @@ def _filter_by_column(request) -> DataProcessResponse:
             message=f"已完成筛选，条件：{column} {condition} {value}",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -453,7 +454,7 @@ def _filter_by_column(request) -> DataProcessResponse:
             message="筛选处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -470,7 +471,7 @@ def _rename_column(request) -> DataProcessResponse:
                 message="需要在描述中指定原列名和新列名",
                 error_details="例如：'重命名age为年龄'",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         if old_name not in df.columns:
@@ -479,7 +480,7 @@ def _rename_column(request) -> DataProcessResponse:
                 message=f"列{old_name}不存在",
                 error_details=f"可用列: {list(df.columns)}",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         df = df.rename(columns={old_name: new_name})
@@ -490,7 +491,7 @@ def _rename_column(request) -> DataProcessResponse:
             message=f"已将列'{old_name}'重命名为'{new_name}'",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -498,7 +499,7 @@ def _rename_column(request) -> DataProcessResponse:
             message="重命名处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -515,7 +516,7 @@ def _convert_column_type(request) -> DataProcessResponse:
                 message="需要在描述中指定列名和目标类型",
                 error_details="例如：'转换age为整数'",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         if column not in df.columns:
@@ -524,7 +525,7 @@ def _convert_column_type(request) -> DataProcessResponse:
                 message=f"列{column}不存在",
                 error_details=f"可用列: {list(df.columns)}",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         if target_type == "int":
@@ -541,7 +542,7 @@ def _convert_column_type(request) -> DataProcessResponse:
                 message="不支持的目标类型",
                 error_details=f"目标类型: {target_type}, 支持的类型: int, float, str, bool",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         df.to_csv(request.output_path, index=False)
@@ -551,7 +552,7 @@ def _convert_column_type(request) -> DataProcessResponse:
             message=f"已将列'{column}'转换为{target_type}类型",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -559,7 +560,7 @@ def _convert_column_type(request) -> DataProcessResponse:
             message="类型转换处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -577,7 +578,7 @@ def _aggregate_column(request) -> DataProcessResponse:
                 message="需要在描述中指定分组列、目标列和聚合函数",
                 error_details="例如：'按部门分组求销售额的平均值'",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         if agg_func not in ['sum', 'mean', 'max', 'min', 'count']:
@@ -586,7 +587,7 @@ def _aggregate_column(request) -> DataProcessResponse:
                 message="不支持此类聚合",
                 error_details=f"聚合函数: {agg_func}, 支持的函数: sum, mean, max, min, count",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         grouped = df.groupby(group_by)[target_column].agg(agg_func).reset_index()
@@ -597,7 +598,7 @@ def _aggregate_column(request) -> DataProcessResponse:
             message=f"已按'{group_by}'分组对'{target_column}'进行{agg_func}聚合",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -605,7 +606,7 @@ def _aggregate_column(request) -> DataProcessResponse:
             message="聚合处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
 
 
@@ -622,7 +623,7 @@ def _sort_by_column(request) -> DataProcessResponse:
                 message="需要在描述中指定排序的列名",
                 error_details="例如：'按年龄升序排序'",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         if column not in df.columns:
@@ -631,7 +632,7 @@ def _sort_by_column(request) -> DataProcessResponse:
                 message=f"列{column}不存在",
                 error_details=f"可用列: {list(df.columns)}",
                 requestId="",
-                conversation_id=None
+                conversation_id=request.conversation_id
             )
         
         df = df.sort_values(by=column, ascending=ascending)
@@ -643,7 +644,7 @@ def _sort_by_column(request) -> DataProcessResponse:
             message=f"已按'{column}'进行{order_text}排序",
             output_file=request.output_path,
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
     except Exception as e:
         return DataProcessResponse(
@@ -651,5 +652,5 @@ def _sort_by_column(request) -> DataProcessResponse:
             message="排序处理失败",
             error_details=str(e),
             requestId="",
-            conversation_id=None
+            conversation_id=request.conversation_id
         )
