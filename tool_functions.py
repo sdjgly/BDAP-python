@@ -11,7 +11,7 @@ import re
 
 app = FastAPI()
 
-# 修改后的数据处理请求模型
+# 数据处理请求模型
 class DataProcessRequest(BaseModel):
     model: str                          # 模型名称
     requestId: str                      # 请求ID
@@ -23,11 +23,12 @@ class DataProcessRequest(BaseModel):
 
 # 数据处理响应模型
 class DataProcessResponse(BaseModel):
+    requestId: str  
+    conversation_id: Optional[str] = None
     status: str  # success 或 error
     message: str
     output_file: Optional[str] = None
     error_details: Optional[str] = None
-    requestId: str  # 返回请求ID
 
 # 添加服务启动和关闭事件
 @app.on_event("startup")
