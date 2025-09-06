@@ -54,119 +54,121 @@ async def health_check():
     return {"status": "healthy", "service": "data-process"}
 
 
-def parse_user_prompt(user_prompt: str) -> Tuple[Optional[str], Optional[Dict]]:
-    """
-    解析用户自然语言描述，提取操作类型和参数
-    返回 (操作类型, 参数字典)
-    """
+def parse_user_prompt(user_prompt: str):
+    """解析用户自然语言描述，提取操作类型和参数"""
     user_prompt_lower = user_prompt.lower()
     
-    # 删除空行相关的关键词
-    if any(keyword in user_prompt_lower for keyword in ['删除空行', '去除空行', '删除缺失', 'drop empty', 'remove empty']):
-        return 'drop_empty_rows', {}
-    
-    # 填充缺失值相关
-    if '平均值' in user_prompt_lower or 'mean' in user_prompt_lower:
-        return 'fill_missing_mean', {}
-    
-    if '中位数' in user_prompt_lower or 'median' in user_prompt_lower:
-        return 'fill_missing_median', {}
-    
-    if '众数' in user_prompt_lower or 'mode' in user_prompt_lower:
-        return 'fill_missing_mode', {}
-    
-    # 常数填充 - 需要提取常数值
-    constant_match = re.search(r'用.?(\d+|零|一|二|三|四|五|六|七|八|九).?填充', user_prompt_lower)
-    if constant_match or '常数填充' in user_prompt_lower:
-        constant_value = 0  # 默认值
-        if constant_match:
-            try:
-                constant_value = int(constant_match.group(1))
-            except:
-                # 处理中文数字或其他情况
-                pass
-        return 'fill_missing_constant', {'constant_value': constant_value}
-    
-    # 筛选操作
-    if '筛选' in user_prompt_lower or 'filter' in user_prompt_lower:
-        # 尝试解析筛选条件
-        # 例如: "筛选年龄大于30的数据"
-        column_match = re.search(r'筛选.?(\w+).?(大于|小于|等于|不等于|>=|<=|>|<|==|!=).?(\d+|\w+)', user_prompt)
-        if column_match:
-            column = column_match.group(1)
-            condition_text = column_match.group(2)
-            value = column_match.group(3)
-            
+    # 重命名列 - 修复后的正则表达式
+    # 使用 [\w\u4e00-\u9fff]+ 来匹配英文字母、数字、下划线和中文字符
+    rename_patterns = [
+        r'重命名\s*["\']?([\w\u4e00-\u9fff_]+)["\']?\s*(为|成)\s*["\']?([\w\u4e00-\u9fff_]+)["\']?',
+        r'rename\s+["\']?([\w\u4e00-\u9fff_]+)["\']?\s+(to|为|成)\s+["\']?([\w\u4e00-\u9fff_]+)["\']?'
+    ]
+        
+    for pattern in rename_patterns:
+        rename_match = re.search(pattern, user_prompt, re.IGNORECASE)
+        if rename_match:
+            old_name = rename_match.group(1).strip()
+            new_name = rename_match.group(3).strip()
+            return 'rename_column', {'old_name': old_name, 'new_name': new_name}
+        
+        # 如果没有匹配到具体参数，但包含重命名关键词
+    if '重命名' in user_prompt_lower or 'rename' in user_prompt_lower:
+         return 'rename_column', {}
+        
+        # 筛选操作 - 也需要类似修复
+    filter_patterns = [
+        r'筛选\s*["\']?([\w\u4e00-\u9fff_]+)["\']?\s*(大于|小于|等于|不等于|>=|<=|>|<|==|!=)\s*["\']?([^"\']+)["\']?',
+        r'filter\s+["\']?([\w\u4e00-\u9fff_]+)["\']?\s*(>|<|>=|<=|==|!=|\bgt\b|\blt\b|\beq\b)\s*["\']?([^"\']+)["\']?'
+    ]
+        
+    for pattern in filter_patterns:
+        filter_match = re.search(pattern, user_prompt, re.IGNORECASE)
+        if filter_match:
+            column = filter_match.group(1).strip()
+            condition_text = filter_match.group(2).strip()
+            value = filter_match.group(3).strip()
+                
             # 转换条件
             condition_map = {
                 '大于': '>', '小于': '<', '等于': '==', '不等于': '!=',
-                '>=': '>=', '<=': '<=', '>': '>', '<': '<', '==': '==', '!=': '!='
+                '>=': '>=', '<=': '<=', '>': '>', '<': '<', '==': '==', '!=': '!=',
+                'gt': '>', 'lt': '<', 'eq': '=='
             }
-            condition = condition_map.get(condition_text, '==')
-            
+            condition = condition_map.get(condition_text.lower(), condition_text)
+                
             # 尝试转换值的类型
             try:
-                value = float(value)
-                if value.is_integer():
+                if '.' in value:
+                    value = float(value)
+                else:
                     value = int(value)
-            except:
-                pass  # 保持字符串类型
-            
+            except ValueError:
+                # 保持字符串类型，去除可能的引号
+                value = value.strip('\'"')
+                
             return 'filter_by_column', {'column': column, 'condition': condition, 'value': value}
-        return 'filter_by_column', {}  # 需要更多参数信息
-    
-    # 重命名列
-    rename_match = re.search(r'重命名.?(\w+).?(为|成).?(\w+)', user_prompt)
-    if rename_match or '重命名' in user_prompt_lower:
-        if rename_match:
-            old_name = rename_match.group(1)
-            new_name = rename_match.group(3)
-            return 'rename_column', {'old_name': old_name, 'new_name': new_name}
-        return 'rename_column', {}  # 需要更多参数信息
-    
-    # 类型转换
-    type_match = re.search(r'转换.?(\w+).?(为|成).?(整数|浮点数|字符串|布尔|int|float|str|bool)', user_prompt_lower)
-    if type_match or '类型转换' in user_prompt_lower:
+        
+        # 类型转换操作
+    type_patterns = [
+        r'转换\s*["\']?([\w\u4e00-\u9fff_]+)["\']?\s*(为|成)\s*["\']?(整数|浮点数|字符串|布尔|int|float|str|bool)["\']?',
+        r'convert\s+["\']?([\w\u4e00-\u9fff_]+)["\']?\s+(to|为|成)\s+["\']?(int|float|str|bool|整数|浮点数|字符串|布尔)["\']?'
+    ]
+        
+    for pattern in type_patterns:
+        type_match = re.search(pattern, user_prompt_lower, re.IGNORECASE)
         if type_match:
-            column = type_match.group(1)
-            target_type_text = type_match.group(3)
-            
+            column = type_match.group(1).strip()
+            target_type_text = type_match.group(3).strip().lower()
+                
             type_map = {
                 '整数': 'int', '浮点数': 'float', '字符串': 'str', '布尔': 'bool',
                 'int': 'int', 'float': 'float', 'str': 'str', 'bool': 'bool'
             }
-            target_type = type_map.get(target_type_text, 'str')
-            
+            target_type = type_map.get(target_type_text, target_type_text)
+                
             return 'convert_column_type', {'column': column, 'target_type': target_type}
-        return 'convert_column_type', {}  # 需要更多参数信息
-    
-    # 聚合操作
-    agg_match = re.search(r'按.?(\w+).?分组.?(求和|平均值|最大值|最小值|计数|sum|mean|max|min|count).?(\w+)', user_prompt_lower)
-    if agg_match or '聚合' in user_prompt_lower or '分组' in user_prompt_lower:
+        
+        # 聚合操作
+    agg_patterns = [
+        r'按\s*["\']?([\w\u4e00-\u9fff_]+)["\']?\s*分组\s*求\s*["\']?([\w\u4e00-\u9fff_]+)["\']?\s*的?\s*(求和|平均值|最大值|最小值|计数|sum|mean|max|min|count)',
+        r'group\s+by\s+["\']?([\w\u4e00-\u9fff_]+)["\']?\s+(sum|mean|max|min|count)\s*["\']?([\w\u4e00-\u9fff_]+)["\']?'
+    ]
+        
+    for pattern in agg_patterns:
+        agg_match = re.search(pattern, user_prompt_lower, re.IGNORECASE)
         if agg_match:
-            group_by = agg_match.group(1)
-            agg_func_text = agg_match.group(2)
-            target_column = agg_match.group(3)
-            
-            agg_map = {
-                '求和': 'sum', '平均值': 'mean', '最大值': 'max', '最小值': 'min', '计数': 'count',
-                'sum': 'sum', 'mean': 'mean', 'max': 'max', 'min': 'min', 'count': 'count'
-            }
-            agg_func = agg_map.get(agg_func_text, 'sum')
-            
-            return 'aggregate_column', {'group_by': group_by, 'target_column': target_column, 'agg_func': agg_func}
-        return 'aggregate_column', {}  # 需要更多参数信息
-    
+            group_by = agg_match.group(1).strip()
+            if len(agg_match.groups()) >= 3:
+                if pattern.startswith(r'按'):  # 中文模式
+                    target_column = agg_match.group(2).strip()
+                    agg_func_text = agg_match.group(3).strip()
+                else:  # 英文模式
+                    agg_func_text = agg_match.group(2).strip()
+                    target_column = agg_match.group(3).strip()
+                    
+                agg_map = {
+                    '求和': 'sum', '平均值': 'mean', '最大值': 'max', '最小值': 'min', '计数': 'count',
+                    'sum': 'sum', 'mean': 'mean', 'max': 'max', 'min': 'min', 'count': 'count'
+                }
+                agg_func = agg_map.get(agg_func_text.lower(), agg_func_text)
+                    
+                return 'aggregate_column', {'group_by': group_by, 'target_column': target_column, 'agg_func': agg_func}
+        
     # 排序操作
-    sort_match = re.search(r'按.?(\w+).?(升序|降序|排序)', user_prompt_lower)
-    if sort_match or '排序' in user_prompt_lower:
+    sort_patterns = [
+        r'按\s*["\']?([\w\u4e00-\u9fff_]+)["\']?\s*(升序|降序|排序)',
+        r'sort\s+by\s+["\']?([\w\u4e00-\u9fff_]+)["\']?\s*(asc|desc|ascending|descending)?'
+    ]
+        
+    for pattern in sort_patterns:
+        sort_match = re.search(pattern, user_prompt_lower, re.IGNORECASE)
         if sort_match:
-            column = sort_match.group(1)
-            order = sort_match.group(2)
-            ascending = order != '降序'
+            column = sort_match.group(1).strip()
+            order = sort_match.group(2).strip() if len(sort_match.groups()) >= 2 else ''
+            ascending = order not in ['降序', 'desc', 'descending']
             return 'sort_by_column', {'column': column, 'ascending': ascending}
-        return 'sort_by_column', {}  # 需要更多参数信息
-    
+        
     return None, {}
 
 
